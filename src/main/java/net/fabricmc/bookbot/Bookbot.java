@@ -7,6 +7,7 @@ import net.fabricmc.api.Environment;
 import net.fabricmc.fabric.api.client.command.v1.ClientCommandManager;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.hud.InGameHud;
+import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.item.*;
 import net.minecraft.nbt.NbtList;
 import net.minecraft.nbt.NbtString;
@@ -43,6 +44,34 @@ public class Bookbot implements ClientModInitializer {
 		hud.addChatMessage(MessageType.CHAT, Text.of(builder.toString()), UUID.randomUUID());
 	}
 
+	public static void writeBook(int slot) {
+		final int MAX_PAGES_COUNT = 100;
+		final int MAX_LENGTH_PAGE = 256;
+		final int MAX_LENGTH_TITLE = 32;
+
+		MinecraftClient mc = MinecraftClient.getInstance();
+
+		assert mc.player != null;
+		mc.player.getInventory().selectedSlot = slot;
+		ItemStack held = mc.player.getMainHandStack();
+
+		String title = generateUtf8(MAX_LENGTH_TITLE);
+		String[] pages = new String[MAX_PAGES_COUNT];
+		NbtList pagesNbt = new NbtList();
+
+		for(int i = 0; i < MAX_PAGES_COUNT; i++) {
+			pages[i] = generateUtf8(MAX_LENGTH_PAGE);
+			pagesNbt.add(NbtString.of(pages[i]));
+		}
+
+		BookUpdateC2SPacket packet = new BookUpdateC2SPacket(
+				slot, List.of(pages), Optional.of(title));
+
+		held.setSubNbt("pages", pagesNbt);
+		assert MinecraftClient.getInstance().player != null;
+		MinecraftClient.getInstance().player.networkHandler.sendPacket(packet);
+	}
+
 	@Override
 	public void onInitializeClient() {
 		ClientCommandManager.DISPATCHER.register(ClientCommandManager.literal("bookbot").executes(context -> {
@@ -51,8 +80,10 @@ public class Bookbot implements ClientModInitializer {
 		}).then(
 			ClientCommandManager.argument("action", StringArgumentType.greedyString())
 			.executes(context -> {
+				final ClientPlayerEntity player = context.getSource().getPlayer();
+
 				String action = StringArgumentType.getString(context, "action");
-				ItemStack held = context.getSource().getPlayer().getMainHandStack();
+				ItemStack held = player.getMainHandStack();
 
 				if(action.equalsIgnoreCase("random")) {
 					if(!held.isOf(Items.WRITABLE_BOOK)) {
@@ -60,33 +91,37 @@ public class Bookbot implements ClientModInitializer {
 						return 1;
 					}
 
-					final int MAX_PAGES_COUNT = 100;
-					final int MAX_LENGTH_PAGE = 256;
-					final int MAX_LENGTH_TITLE = 32;
+					int slot = player.getInventory().selectedSlot;
 
-					int slot = context.getSource().getPlayer().getInventory().selectedSlot;
-					String title = generateUtf8(MAX_LENGTH_TITLE);
-					String[] pages = new String[MAX_PAGES_COUNT];
-					NbtList pagesNbt = new NbtList();
-
-					for(int i = 0; i < MAX_PAGES_COUNT; i++) {
-						pages[i] = generateUtf8(MAX_LENGTH_PAGE);
-						pagesNbt.add(NbtString.of(pages[i]));
-					}
-
-					BookUpdateC2SPacket packet = new BookUpdateC2SPacket(
-							slot, List.of(pages), Optional.of(title));
-
-					held.setSubNbt("pages", pagesNbt);
-					assert MinecraftClient.getInstance().player != null;
-					MinecraftClient.getInstance().player.networkHandler.sendPacket(packet);
+					writeBook(slot);
 				} else if(action.equalsIgnoreCase("file")) {
 					sendChat("Not implemented yet.");
+				} else if (action.equalsIgnoreCase("auto")) {
+					new Thread(() -> {
+						for (byte i = 0; i < 9; i++) {
+							player.getInventory().selectedSlot = i;
+							ItemStack held1 = player.getMainHandStack();
+
+							if (!held1.isOf(Items.WRITABLE_BOOK)) {
+								continue;
+							}
+
+							writeBook(i);
+
+							try {
+								// TODO: Make delay variable?
+								Thread.sleep(500);
+							} catch (InterruptedException e) {
+								e.printStackTrace();
+							}
+						}
+					}).start();
 				} else {
-					sendChat("Available actions: ['file', 'random']");
+					sendChat("Available actions: ['file', 'random', 'auto']");
 				}
 
 				return 1;
 			})));
 	}
+
 }
