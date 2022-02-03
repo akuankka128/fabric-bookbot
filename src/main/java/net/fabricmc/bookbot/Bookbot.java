@@ -110,7 +110,7 @@ public class Bookbot implements ClientModInitializer {
 
 							try {
 								// TODO: Make delay variable?
-								Thread.sleep(500);
+								Thread.sleep(2000);
 							} catch (InterruptedException e) {
 								e.printStackTrace();
 							}
